@@ -1,13 +1,13 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import sqlite3
 import time
 import requests
 
-app = FastAPI(title="Airdrop Mining Bot Backend")
+app = FastAPI(title="Nerd Coin Mining Backend")
 
-# Frontend (Mini App) কানেক্ট করার জন্য CORS অনুমতি
+# Complete CORS setup allowing all origins, methods, and headers
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -16,11 +16,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Configuration Setup
-BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"  # BotFather থেকে পাওয়া বটের টোকেন
-ADMIN_ID = 123456789                # আপনার নিজের টেলিগ্রাম ইউজার আইডি
+BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"  # Replace with actual Bot Token
+ADMIN_ID = 123456789                # Replace with actual Admin Telegram User ID
 
-# Database Initialization
 def init_db():
     conn = sqlite3.connect("database.db")
     cursor = conn.cursor()
@@ -39,7 +37,6 @@ def init_db():
 
 init_db()
 
-# Data Models
 class UserRegister(BaseModel):
     user_id: int
     username: str = ""
@@ -49,7 +46,13 @@ class BroadcastMessage(BaseModel):
     admin_id: int
     message: str
 
-# 1. Mining & Sync Endpoint
+# 1. Dedicated Health Check Endpoint for Heartbeat & Status
+@app.get("/health")
+@app.get("/api/health")
+def health_check():
+    return {"status": "ok", "timestamp": int(time.time())}
+
+# 2. Mining & User Sync Endpoint
 @app.post("/api/user/sync")
 def sync_user(data: UserRegister):
     conn = sqlite3.connect("database.db")
@@ -62,16 +65,13 @@ def sync_user(data: UserRegister):
     if user:
         old_balance, speed, last_updated = user
         elapsed_seconds = current_time - last_updated
-        # Speed per hour to speed per second calculation
         new_balance = old_balance + (elapsed_seconds * (speed / 3600.0))
         
         cursor.execute("UPDATE users SET balance = ?, last_updated = ? WHERE user_id = ?", 
                        (new_balance, current_time, data.user_id))
     else:
-        # Default Speed: 10 Coins/Sec = 36,000 Coins/Hour
-        speed = 36000.0
+        speed = 36000.0  # Default 10 coins/sec = 36,000 coins/hr
         
-        # Referral Bonus: রেফার করা ইউজারকে +১ কয়েন/সেকেন্ড (+৩৬০০/ঘণ্টা) বোনাস
         if data.referrer_id and data.referrer_id != data.user_id:
             cursor.execute("UPDATE users SET mining_speed = mining_speed + 3600.0 WHERE user_id = ?", (data.referrer_id,))
             
@@ -86,14 +86,14 @@ def sync_user(data: UserRegister):
         "status": "success",
         "user_id": data.user_id,
         "balance": round(new_balance, 2),
-        "mining_speed": speed / 3600.0  # UI-তে Coins/Sec আকারে পাঠাবে
+        "mining_speed": speed / 3600.0
     }
 
-# 2. Admin Announcement Broadcast Endpoint
+# 3. Broadcast Announcement
 @app.post("/api/admin/broadcast")
 def broadcast_message(data: BroadcastMessage):
     if data.admin_id != ADMIN_ID:
-        raise HTTPException(status_code=403, detail="Access denied! You are not the admin.")
+        raise HTTPException(status_code=403, detail="Access denied!")
         
     conn = sqlite3.connect("database.db")
     cursor = conn.cursor()
@@ -107,7 +107,7 @@ def broadcast_message(data: BroadcastMessage):
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
         payload = {"chat_id": user_id, "text": data.message, "parse_mode": "HTML"}
         try:
-            res = requests.post(url, json=payload)
+            res = requests.post(url, json=payload, timeout=5)
             if res.status_code == 200:
                 count += 1
         except Exception:
