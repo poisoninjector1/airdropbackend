@@ -7,20 +7,18 @@ import requests
 
 app = FastAPI(title="Nerd Coin Mining Backend")
 
-# Complete CORS configuration to prevent browser fetch blocking
+# Complete CORS setup allowing all origins and methods
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_methods=["GET", "POST", "OPTIONS", "HEAD"],
     allow_headers=["*"],
 )
 
-# Configuration Setup
-BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"  # BotFather token
-ADMIN_ID = 123456789                # Admin Telegram User ID
+BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"  # Replace with actual Telegram Bot Token
+ADMIN_ID = 123456789                # Replace with actual Admin Telegram User ID
 
-# Database Initialization
 def init_db():
     conn = sqlite3.connect("database.db")
     cursor = conn.cursor()
@@ -39,7 +37,6 @@ def init_db():
 
 init_db()
 
-# Data Models
 class UserRegister(BaseModel):
     user_id: int
     username: str = ""
@@ -49,14 +46,14 @@ class BroadcastMessage(BaseModel):
     admin_id: int
     message: str
 
-# 1. Health Endpoints for Heartbeat & Status Verification
-@app.get("/")
-@app.get("/health")
-@app.get("/api/health")
+# 1. Root & Health Check Endpoints (Supports HEAD and GET methods for Render logs fix)
+@app.api_route("/", methods=["GET", "HEAD"])
+@app.api_route("/health", methods=["GET", "HEAD"])
+@app.api_route("/api/health", methods=["GET", "HEAD"])
 def health_check():
     return {"status": "ok", "message": "Nerd Coin API is Live"}
 
-# 2. Mining & Sync Endpoint
+# 2. Mining Sync Endpoint
 @app.post("/api/user/sync")
 def sync_user(data: UserRegister):
     conn = sqlite3.connect("database.db")
@@ -69,16 +66,13 @@ def sync_user(data: UserRegister):
     if user:
         old_balance, speed, last_updated = user
         elapsed_seconds = current_time - last_updated
-        # Calc: 36000 coins/hr = 10 coins/sec
         new_balance = old_balance + (elapsed_seconds * (speed / 3600.0))
         
         cursor.execute("UPDATE users SET balance = ?, last_updated = ? WHERE user_id = ?", 
                        (new_balance, current_time, data.user_id))
     else:
-        # Default Speed: 10 Coins/Sec = 36000 Coins/Hour
-        speed = 36000.0
+        speed = 36000.0  # 10 coins/sec (36,000 coins/hr)
         
-        # Referral Bonus: Referral get +1 Coin/sec (+3600 Coins/Hour)
         if data.referrer_id and data.referrer_id != data.user_id:
             cursor.execute("UPDATE users SET mining_speed = mining_speed + 3600.0 WHERE user_id = ?", (data.referrer_id,))
             
@@ -93,14 +87,14 @@ def sync_user(data: UserRegister):
         "status": "success",
         "user_id": data.user_id,
         "balance": round(new_balance, 2),
-        "mining_speed": speed / 3600.0  # Returns Coins/Sec (e.g., 10)
+        "mining_speed": speed / 3600.0
     }
 
-# 3. Admin Announcement Broadcast Endpoint
+# 3. Broadcast Endpoint
 @app.post("/api/admin/broadcast")
 def broadcast_message(data: BroadcastMessage):
     if data.admin_id != ADMIN_ID:
-        raise HTTPException(status_code=403, detail="Access denied! You are not the admin.")
+        raise HTTPException(status_code=403, detail="Access denied!")
         
     conn = sqlite3.connect("database.db")
     cursor = conn.cursor()
