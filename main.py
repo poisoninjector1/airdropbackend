@@ -7,7 +7,7 @@ import requests
 
 app = FastAPI(title="Nerd Coin Mining Backend")
 
-# Complete CORS setup allowing all origins and methods
+# Complete CORS configuration allowing all origins, methods and headers
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -46,14 +46,15 @@ class BroadcastMessage(BaseModel):
     admin_id: int
     message: str
 
-# 1. Root & Health Check Endpoints (Supports HEAD and GET methods for Render logs fix)
+# FIX: Root & Health Check Endpoints (Handles GET, HEAD, single slash /health and double slash //health)
 @app.api_route("/", methods=["GET", "HEAD"])
 @app.api_route("/health", methods=["GET", "HEAD"])
+@app.api_route("//health", methods=["GET", "HEAD"])
 @app.api_route("/api/health", methods=["GET", "HEAD"])
 def health_check():
     return {"status": "ok", "message": "Nerd Coin API is Live"}
 
-# 2. Mining Sync Endpoint
+# Mining Sync Endpoint
 @app.post("/api/user/sync")
 def sync_user(data: UserRegister):
     conn = sqlite3.connect("database.db")
@@ -90,7 +91,7 @@ def sync_user(data: UserRegister):
         "mining_speed": speed / 3600.0
     }
 
-# 3. Broadcast Endpoint
+# Broadcast Endpoint
 @app.post("/api/admin/broadcast")
 def broadcast_message(data: BroadcastMessage):
     if data.admin_id != ADMIN_ID:
