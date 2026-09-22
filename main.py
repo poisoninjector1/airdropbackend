@@ -1,13 +1,13 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from typing import Optional
 import sqlite3
 import time
 import requests
 
 app = FastAPI(title="Nerd Coin Mining Backend")
 
-# Complete CORS configuration allowing all origins, methods and headers
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -16,8 +16,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"  # Replace with actual Telegram Bot Token
-ADMIN_ID = 123456789                # Replace with actual Admin Telegram User ID
+BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"
+ADMIN_ID = 123456789
 
 def init_db():
     conn = sqlite3.connect("database.db")
@@ -37,16 +37,16 @@ def init_db():
 
 init_db()
 
+# FIX: Optional fields used to prevent 422 Unprocessable Content error
 class UserRegister(BaseModel):
     user_id: int
-    username: str = ""
-    referrer_id: int = None
+    username: Optional[str] = ""
+    referrer_id: Optional[int] = None
 
 class BroadcastMessage(BaseModel):
     admin_id: int
     message: str
 
-# FIX: Root & Health Check Endpoints (Handles GET, HEAD, single slash /health and double slash //health)
 @app.api_route("/", methods=["GET", "HEAD"])
 @app.api_route("/health", methods=["GET", "HEAD"])
 @app.api_route("//health", methods=["GET", "HEAD"])
@@ -54,7 +54,6 @@ class BroadcastMessage(BaseModel):
 def health_check():
     return {"status": "ok", "message": "Nerd Coin API is Live"}
 
-# Mining Sync Endpoint
 @app.post("/api/user/sync")
 def sync_user(data: UserRegister):
     conn = sqlite3.connect("database.db")
@@ -72,13 +71,13 @@ def sync_user(data: UserRegister):
         cursor.execute("UPDATE users SET balance = ?, last_updated = ? WHERE user_id = ?", 
                        (new_balance, current_time, data.user_id))
     else:
-        speed = 36000.0  # 10 coins/sec (36,000 coins/hr)
+        speed = 36000.0
         
         if data.referrer_id and data.referrer_id != data.user_id:
             cursor.execute("UPDATE users SET mining_speed = mining_speed + 3600.0 WHERE user_id = ?", (data.referrer_id,))
             
         cursor.execute("INSERT INTO users (user_id, username, balance, mining_speed, last_updated, referred_by) VALUES (?, ?, ?, ?, ?, ?)",
-                       (data.user_id, data.username, 0.0, speed, current_time, data.referrer_id))
+                       (data.user_id, data.username or "", 0.0, speed, current_time, data.referrer_id))
         new_balance = 0.0
         
     conn.commit()
@@ -91,7 +90,6 @@ def sync_user(data: UserRegister):
         "mining_speed": speed / 3600.0
     }
 
-# Broadcast Endpoint
 @app.post("/api/admin/broadcast")
 def broadcast_message(data: BroadcastMessage):
     if data.admin_id != ADMIN_ID:
