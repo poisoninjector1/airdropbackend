@@ -29,7 +29,8 @@ def init_db():
             balance REAL DEFAULT 0.0,
             mining_speed REAL DEFAULT 36000.0,
             last_updated INTEGER,
-            referred_by INTEGER
+            referred_by INTEGER,
+            wallet_address TEXT
         )
     ''')
     conn.commit()
@@ -37,11 +38,11 @@ def init_db():
 
 init_db()
 
-# FIX: Optional fields used to prevent 422 Unprocessable Content error
 class UserRegister(BaseModel):
     user_id: int
     username: Optional[str] = ""
     referrer_id: Optional[int] = None
+    wallet_address: Optional[str] = None
 
 class BroadcastMessage(BaseModel):
     admin_id: int
@@ -50,7 +51,6 @@ class BroadcastMessage(BaseModel):
 @app.api_route("/", methods=["GET", "HEAD"])
 @app.api_route("/health", methods=["GET", "HEAD"])
 @app.api_route("//health", methods=["GET", "HEAD"])
-@app.api_route("/api/health", methods=["GET", "HEAD"])
 def health_check():
     return {"status": "ok", "message": "Nerd Coin API is Live"}
 
@@ -68,16 +68,16 @@ def sync_user(data: UserRegister):
         elapsed_seconds = current_time - last_updated
         new_balance = old_balance + (elapsed_seconds * (speed / 3600.0))
         
-        cursor.execute("UPDATE users SET balance = ?, last_updated = ? WHERE user_id = ?", 
-                       (new_balance, current_time, data.user_id))
+        cursor.execute("UPDATE users SET balance = ?, last_updated = ?, wallet_address = ? WHERE user_id = ?", 
+                       (new_balance, current_time, data.wallet_address, data.user_id))
     else:
         speed = 36000.0
         
         if data.referrer_id and data.referrer_id != data.user_id:
             cursor.execute("UPDATE users SET mining_speed = mining_speed + 3600.0 WHERE user_id = ?", (data.referrer_id,))
             
-        cursor.execute("INSERT INTO users (user_id, username, balance, mining_speed, last_updated, referred_by) VALUES (?, ?, ?, ?, ?, ?)",
-                       (data.user_id, data.username or "", 0.0, speed, current_time, data.referrer_id))
+        cursor.execute("INSERT INTO users (user_id, username, balance, mining_speed, last_updated, referred_by, wallet_address) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                       (data.user_id, data.username or "", 0.0, speed, current_time, data.referrer_id, data.wallet_address))
         new_balance = 0.0
         
     conn.commit()
@@ -89,28 +89,3 @@ def sync_user(data: UserRegister):
         "balance": round(new_balance, 2),
         "mining_speed": speed / 3600.0
     }
-
-@app.post("/api/admin/broadcast")
-def broadcast_message(data: BroadcastMessage):
-    if data.admin_id != ADMIN_ID:
-        raise HTTPException(status_code=403, detail="Access denied!")
-        
-    conn = sqlite3.connect("database.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT user_id FROM users")
-    users = cursor.fetchall()
-    conn.close()
-    
-    count = 0
-    for u in users:
-        user_id = u[0]
-        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-        payload = {"chat_id": user_id, "text": data.message, "parse_mode": "HTML"}
-        try:
-            res = requests.post(url, json=payload, timeout=5)
-            if res.status_code == 200:
-                count += 1
-        except Exception:
-            continue
-            
-    return {"status": "success", "sent_to_users": count}
